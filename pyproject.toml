@@ -5,5 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "pinecone>=9.0.1",
+    "pydotenv>=0.0.7",
     "pymupdf>=1.27.2.3",
 ]
