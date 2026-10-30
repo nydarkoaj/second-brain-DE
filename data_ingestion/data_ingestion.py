@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 import re
+import sys
 
 source_parent_dir = pathlib.Path(r'C:\Users\NanaYawDarko\Documents\Internal Projects\second-brain-DE\DataSources')
 data_source_type = 'CVs'
@@ -18,7 +19,7 @@ pinecone_api_key = os.getenv('PINECONE_API_KEY')
 pinecone_index_name = 'cv-index'
 pinecone_cv_namespace = 'cv-namespace'
 pc = pinecone.Pinecone(api_key=pinecone_api_key)
-
+dense_index = pc.Index(pinecone_index_name)
 
 payload = []
 
@@ -53,66 +54,59 @@ def clean(t):
     t = re.sub(r'^#+\s*', '', t, flags=re.M)
     return t
 
-def ingest_to_pinecone(payload,index_name, ns):
-    # Target the index
-    dense_index = pc.Index(index_name)
+def ingest_to_pinecone(payload, ns, index):
+    index.upsert_records(namespace=ns, records=payload)
 
-    # Upsert the records into a namespace
-    dense_index.upsert_records(namespace=ns, records=payload)
-
-def inspect_pinecone_records(index_name, ns):
+def inspect_pinecone_records(index, ns):
     # Target the index
-    dense_index = pc.Index(index_name)
+    # dense_index = pc.Index(index_name)
 
     # Fetch records from the namespace
     records = []
-    for page in dense_index.list(namespace=ns, limit=100):
+    for page in index.list(namespace=ns, limit=100):
         records.extend(page)
     return records
 
-def delete_pinecone_records(index_name, ns):
-    # Target the index
-    dense_index = pc.Index(index_name)
-
+def delete_pinecone_records(index, ns):
     # Delete all records in the namespace
-    dense_index.delete(namespace=ns, delete_all=True)
+    index.delete(namespace=ns, delete_all=True)
+
+def return_search_query_results(index, ns, query_vector, top_k=5):
+    response = index
+    return index.query(namespace=ns, vector=query_vector, top_k=top_k)
 
 # build a main function to loop through the files in the cv_file_names list, extract text from each file, and build a JSON payload for each file. Then ingest the payload into Pinecone.
 
 def main():
     records = []
-    for rec_counter,file in enumerate([single_file], start=1):
-        with pymupdf.open(source_parent_dir.joinpath(data_source_type).joinpath(file)) as doc:
-            page_count = doc.page_count
+    for rec_counter,file in enumerate([cv_file_names], start=1):
+        for file in cv_file_names:
             print(f"\nProcessing file: {file}...")
-            print(f"Total pages in {file}: {page_count}")
-            chunks = doc.to_chunks()          # one call per file
-            for c in chunks.to_dicts():       # list of dicts, one per chunk
-               # print(c["id"], c["metadata"]["section_path"], c["metadata"]["page_start"])
-                m=c["metadata"]
-                text = c["text"]
-                section = " > ".join(m["section_path"]) or "Introduction"
-                records.append({
-                    "_id": f"{file}_{c['id']}".replace(" ", "_"),
-                    "section": section,
-                    "text": f"{clean_file_name(file)} | {section}\n\n{clean(text)}",
-                    "page": m["page_start"],
-                    "data_source_type": data_source_type,
-                    "file_name": clean_file_name(file),
-                    "ingestion_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                })
-                print(f"Ingesting chunk {c['id']} into Pinecone...")
-                ingest_to_pinecone([records[-1]],pinecone_index_name,pinecone_cv_namespace)
-                print(f"Chunk {c['id']} ingested successfully.")
-                print(f"Records in Pinecone namespace:{len(inspect_pinecone_records(pinecone_index_name,pinecone_cv_namespace))}")
+            with pymupdf.open(source_parent_dir.joinpath(data_source_type).joinpath(file)) as doc:
+                page_count = doc.page_count
+                print(f"Total pages in {file}: {page_count}")
+                chunks = doc.to_chunks()          # one call per file
+                for c in chunks.to_dicts():       # list of dicts, one per chunk
+                # print(c["id"], c["metadata"]["section_path"], c["metadata"]["page_start"])
+                    m=c["metadata"]
+                    text = c["text"]
+                    section = " > ".join(m["section_path"]) or "Introduction"
+                    records.append({
+                        "_id": f"{file}_{c['id']}".replace(" ", "_"),
+                        "section": section,
+                        "text": f"{clean_file_name(file)} | {section}\n\n{clean(text)}",
+                        "page": m["page_start"],
+                        "data_source_type": data_source_type,
+                        "file_name": clean_file_name(file),
+                        "ingestion_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                    print(f"Ingesting chunk {c['id']} into Pinecone...")
+                    ingest_to_pinecone([records[-1]],pinecone_index_name,pinecone_cv_namespace, dense_index)
+                    print(f"Chunk {c['id']} ingested successfully.")
+                    print(f"Records in Pinecone namespace:{len(inspect_pinecone_records(dense_index,pinecone_cv_namespace))}")
                 
-    return records[0]
-        # print(f"Extracted text from {file}: {page_text[:200]}...")  # Print the first 200 characters of the extracted text
-        # payload.append(build_json_payload(page_text, file, data_source_type, rec_counter))
-    
-    # print("Ingesting data into Pinecone...")
-    # response = ingest_to_pinecone(payload,pinecone_index_name,pinecone_api_key,pinecone_cv_namespace)
-    # print(f"Response from Pinecone: {response}")
+    return records[:-5]  # Return the last 5 records for inspection
+       
     
 if __name__ == "__main__":
     print(main())
