@@ -20,42 +20,21 @@ pinecone_index_name = 'cv-index'
 pinecone_cv_namespace = 'cv-namespace'
 pc = pinecone.Pinecone(api_key=pinecone_api_key)
 dense_index = pc.Index(pinecone_index_name)
+BATCH_SIZE = 90
 
 payload = []
-
-
-def build_json_payload(text, file, data_source_type, rec_counter):
-    return {
-        "_id": f"rec_{rec_counter}",
-        "text": text,
-        "data_source_type": data_source_type,
-        "file_name": clean_file_name(file),
-        "ingestion_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-
 
 def clean_file_name(file_name):
     if "_" in file_name or "-" in file_name:
         return file_name.replace("_", " ").replace("-", " ")
     return file_name
 
-# new function to loop through pages in a doc and get text with headers
-def extract_text_with_headers(doc):
-    text_with_headers = []
-    for page_num in range(doc.page_count):
-        page = doc.load_page(page_num)
-        page_text = page.get_text("text")
-        text_with_headers.append(f"Page {page_num + 1}:\n{page_text}")
-    return "\n".join(text_with_headers)
 
 def clean(t):
     t = re.sub(r'</?(sup|u)>', '', t)
     t = t.replace('**', '')
     t = re.sub(r'^#+\s*', '', t, flags=re.M)
     return t
-
-def ingest_to_pinecone(payload, ns, index):
-    index.upsert_records(namespace=ns, records=payload)
 
 def inspect_pinecone_records(index, ns):
     # Target the index
@@ -71,9 +50,11 @@ def delete_pinecone_records(index, ns):
     # Delete all records in the namespace
     index.delete(namespace=ns, delete_all=True)
 
-def return_search_query_results(index, ns, query_vector, top_k=5):
-    response = index
-    return index.query(namespace=ns, vector=query_vector, top_k=top_k)
+def ingest_to_pinecone(payload,ns,index,batch_size=BATCH_SIZE):
+    for i in range(0,len(payload),batch_size):
+        batch = payload[i:i+batch_size]
+        index.upsert_records(namespace=ns,records=batch)
+        print(f"Upserted batch {i//batch_size + 1} of {len(payload)//batch_size + 1} into Pinecone.")
 
 # build a main function to loop through the files in the cv_file_names list, extract text from each file, and build a JSON payload for each file. Then ingest the payload into Pinecone.
 
@@ -100,12 +81,11 @@ def main():
                         "file_name": clean_file_name(file),
                         "ingestion_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     })
-                    print(f"Ingesting chunk {c['id']} into Pinecone...")
-                    ingest_to_pinecone([records[-1]],pinecone_index_name,pinecone_cv_namespace, dense_index)
-                    print(f"Chunk {c['id']} ingested successfully.")
-                    print(f"Records in Pinecone namespace:{len(inspect_pinecone_records(dense_index,pinecone_cv_namespace))}")
-                
-    return records[:-5]  # Return the last 5 records for inspection
+                      
+        ingest_to_pinecone(records,pinecone_cv_namespace, dense_index,batch_size=BATCH_SIZE)
+        print(f"file {file} ingested successfully.")           
+    print(f"Records in Pinecone namespace:{len(inspect_pinecone_records(dense_index,pinecone_cv_namespace))}")            
+    return records[-5:]  # Return the last 5 records for inspection
        
     
 if __name__ == "__main__":
