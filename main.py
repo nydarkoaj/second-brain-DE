@@ -1,16 +1,31 @@
 import requests
 import json
-from data_ingestion.query import index,format_results
+import sys
+from data_ingestion.query import index,format_results,search_pinecone
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "deepseek-r1:1.5b"
 
-def ask_ollama(prompt):
+
+def ask_ollama(question,results):
+    formatted_prompt = """
+You are a helpful assistant that can answer questions about my CV.
+this data {results} is a JSON array of records from my CV, each record has the following fields: id, file_name, section, page, text.
+You will be given a question, and you should answer the question based on the information in the CV records. If the answer is not in the records, you should say "I don't know".
+
+
+You will take user inputs from {question} and answer them based on the CV records. You should not make up answers that are not in the records. You should only answer based on the information in the records. If the answer is not in the records, you should say "I don't know".\
+Add the chunk ids from the question in the generated answer. If the answer is not in the records, you should say "I don't know".\
+"""
+
     payload = {
         "model": MODEL,
-        "prompt": prompt,
+        "prompt": formatted_prompt,
         "stream": False 
     }
+
+
+
     try:
         response = requests.post(OLLAMA_URL, json=payload)
         response.raise_for_status()
@@ -35,10 +50,12 @@ def ask_ollama(prompt):
 def main():
     print(f"Chatbot using {MODEL} via Ollama. Type 'exit' to quit.")
     while True:
-        user_input = input("you are deepseek, a personal assistant that can answer questions about my CV. Ask me anything: ")
+        user_input = " ".join(sys.argv[1:])
         if user_input.lower() == "exit":
             break
-        print("Bot:", ask_ollama(user_input).strip())
+        query_results = search_pinecone(user_input)
+        results = format_results(query_results)
+        print("Bot:", ask_ollama(question = user_input, results = results).strip())
 
 if __name__ == "__main__":
     main()
