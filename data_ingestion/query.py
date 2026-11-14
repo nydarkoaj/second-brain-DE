@@ -16,7 +16,7 @@ query_text = " ".join(sys.argv[1:]) or "where did I get networking experience"
 def search_pinecone(query_text):
     results = index.search(
         namespace="cv-namespace",
-        query={"inputs": {"text": query_text}, "top_k": 5},
+        query={"inputs": {"text": query_text}, "top_k": 10},
         fields=["file_name", "section", "page", "text"],
     )
     return results
